@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScopeMath - honest telescope math</title>
+<style>
+  :root { --bg:#0d1017; --card:#151b28; --line:#28324a; --ink:#e4e8f2; --dim:#93a0bd; --star:#8fb7f0; --warn:#e0894a; --ok:#7fc36a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:28px 20px 80px; }
+  h1 { font-size:30px; margin:6px 0 0; } h1 span { color:var(--star); }
+  nav { text-align:right; } nav a { color:var(--dim); text-decoration:none; font-size:14px; }
+  nav a:hover { color:var(--star); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px 22px; margin-top:22px; }
+  .card h2 { margin:0 0 14px; font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--dim); font-weight:600; }
+  .row { display:flex; flex-wrap:wrap; gap:14px; align-items:flex-end; }
+  label { display:block; font-size:12px; color:var(--dim); margin-bottom:4px; }
+  input, select { background:#0f141f; border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:9px 10px; font-size:15px; width:110px; }
+  select { width:auto; min-width:130px; }
+  .presets { margin-top:14px; display:flex; flex-wrap:wrap; gap:8px; }
+  .presets button { background:#1a2334; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:8px 14px; font-size:14px; cursor:pointer; }
+  .presets button:hover { border-color:var(--star); }
+  .stat { display:inline-block; background:#0f141f; border:1px solid var(--line); border-radius:10px; padding:12px 18px; margin:0 10px 10px 0; min-width:130px; }
+  .stat b { display:block; font-size:24px; color:var(--star); }
+  .stat small { color:var(--dim); font-size:12px; }
+  .verdict { font-size:17px; margin:2px 0 14px; }
+  .verdict b { color:var(--star); }
+  .fix { background:#131c2c; border:1px solid #2a3a58; border-radius:10px; padding:12px 16px; margin-top:8px; font-size:15px; }
+  .fix.ok { background:#15271c; border-color:#2b5234; }
+  .fix.warn { background:#2c1e12; border-color:#5c3d20; }
+  .note { color:var(--dim); font-size:13px; margin-top:10px; }
+  table { width:100%; border-collapse:collapse; margin-top:6px; font-size:15px; }
+  td, th { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav><a href="index.html">about</a></nav>
+  <h1>Scope<span>Math</span></h1>
+  <div class="note" style="font-size:14px;">Aperture is the budget, magnification is how you spend it, and every eyepiece is a trade. Here is the accounting.</div>
+
+  <div class="card">
+    <h2>The telescope</h2>
+    <div class="row">
+      <div><label>Aperture (mm)</label><input id="ap" type="number" min="50" max="600" step="1" value="200"></div>
+      <div><label>Focal length (mm)</label><input id="fl" type="number" min="200" max="4000" step="10" value="1200"></div>
+    </div>
+    <div class="presets" id="presets"></div>
+    <div id="scope"></div>
+  </div>
+
+  <div class="card">
+    <h2>The eyepiece</h2>
+    <div class="row">
+      <div><label>Eyepiece (mm)</label><input id="ep" type="number" min="2" max="56" step="0.5" value="25"></div>
+      <div><label>Apparent field (deg)</label><select id="afov"><option value="40">40 - Kellner / MA</option><option value="52" selected>52 - Plossl</option><option value="68">68 - wide</option><option value="82">82 - ultra-wide</option><option value="100">100 - hyper-wide</option></select></div>
+      <div><label>Barlow</label><select id="barlow"><option value="1" selected>none</option><option value="2">2x</option><option value="3">3x</option></select></div>
+    </div>
+    <div id="eyepiece"></div>
+  </div>
+
+  <div class="card">
+    <h2>The eyepiece kit</h2>
+    <div id="kit"></div>
+  </div>
+</div>
+<script src="engine.js"></script>
+<script>
+var $ = function(id){ return document.getElementById(id); };
+var PRESETS = {
+  '8" Dob (1200/200)': { ap:200, fl:1200 },
+  '80ED refractor (600/80)': { ap:80, fl:600 },
+  '130 Newt (650/130)': { ap:130, fl:650 },
+  '90 Mak (1250/90)': { ap:90, fl:1250 },
+  '10" Dob (1250/254)': { ap:254, fl:1250 }
+};
+var pb = $('presets');
+Object.keys(PRESETS).forEach(function(name){
+  var b = document.createElement('button'); b.textContent = name;
+  b.onclick = function(){ $('ap').value = PRESETS[name].ap; $('fl').value = PRESETS[name].fl; render(); };
+  pb.appendChild(b);
+});
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+function render(){
+  var ap=parseFloat($('ap').value), fl=parseFloat($('fl').value);
+  if (!(ap>0&&fl>0)) { $('scope').innerHTML='<div class="note">Enter aperture and focal length.</div>'; $('eyepiece').innerHTML=''; $('kit').innerHTML=''; return; }
+  var cap=ScopeEngine.maxUsefulMag(ap);
+  var fr=ScopeEngine.fRatio(fl,ap);
+  var dawes=ScopeEngine.dawesLimit(ap);
+  var grasp=ScopeEngine.lightGrasp(ap);
+  var lim=ScopeEngine.limitingMag(ap);
+
+  $('scope').innerHTML =
+    '<div class="verdict">A ' + ap + 'mm f/' + fr + ' scope tops out at <b>' + cap + 'x</b> - that ceiling is physics, not marketing.</div>' +
+    '<span class="stat"><b>' + cap + 'x</b><small>max useful magnification</small></span>' +
+    '<span class="stat"><b>' + dawes + '"</b><small>Dawes resolution limit</small></span>' +
+    '<span class="stat"><b>' + grasp + 'x</b><small>light grasp vs naked eye</small></span>' +
+    '<span class="stat"><b>~' + lim + '</b><small>faintest star (dark sky)</small></span>' +
+    '<div class="note">"675x!" on a 60mm department-store scope is empty magnification - a bigger blur. The honest ceiling is 2x per mm of aperture, and the atmosphere usually taxes you below it.</div>';
+
+  var ep=parseFloat($('ep').value), afov=parseFloat($('afov').value), barlow=parseFloat($('barlow').value);
+  if (!(ep>0)) { $('eyepiece').innerHTML='<div class="note">Enter an eyepiece focal length.</div>'; } else {
+    var effEp = ep / barlow;
+    var mag=ScopeEngine.magnification(fl, effEp);
+    var pupil=ScopeEngine.exitPupil(ap, mag);
+    var tfov=ScopeEngine.trueFOV(afov, mag);
+    var mv=ScopeEngine.magVerdict(mag, ap);
+    var ev=ScopeEngine.exitVerdict(pupil);
+    var empty=/empty/.test(mv);
+    $('eyepiece').innerHTML =
+      '<div class="verdict">A ' + ep + 'mm eyepiece' + (barlow>1?' behind a ' + barlow + 'x Barlow (effective ' + effEp + 'mm)':'') + ' gives <b>' + mag + 'x</b>, a <b>' + pupil + 'mm</b> exit pupil and <b>' + tfov + ' deg</b> of true field.</div>' +
+      '<span class="stat"><b>' + mag + 'x</b><small>magnification</small></span>' +
+      '<span class="stat"><b>' + pupil + 'mm</b><small>exit pupil</small></span>' +
+      '<span class="stat"><b>' + tfov + ' deg</b><small>true field of view</small></span>' +
+      '<div class="fix' + (empty?' warn':' ok') + '">' + esc(mv) + '</div>' +
+      '<div class="fix">' + esc(ev) + '</div>' +
+      '<div class="note">Exit pupil = aperture / magnification. Over 7mm the extra light misses your pupil entirely; under 1mm your own eye floaters start photobombing.</div>';
+  }
+
+  var minEp=ScopeEngine.minEpFL(fl, ap);
+  var richEp=ScopeEngine.eyepieceForMag(fl, ap/5.5);
+  var midEp=ScopeEngine.eyepieceForMag(fl, Math.round(cap*0.4));
+  var highEp=ScopeEngine.eyepieceForMag(fl, Math.round(cap*0.75));
+  $('kit').innerHTML =
+    '<div class="verdict">Three eyepieces cover this scope. Anything shorter than <b>' + minEp + 'mm</b> buys you nothing.</div>' +
+    '<table><tr><th>Job</th><th>Eyepiece</th><th>Power</th><th>Why</th></tr>' +
+    '<tr><td>Rich field / finding</td><td>~' + Math.round(richEp) + 'mm</td><td>' + ScopeEngine.magnification(fl, richEp) + 'x</td><td>5-7mm exit pupil, widest real field</td></tr>' +
+    '<tr><td>Workhorse</td><td>~' + Math.round(midEp) + 'mm</td><td>' + ScopeEngine.magnification(fl, midEp) + 'x</td><td>40% of ceiling - most nights live here</td></tr>' +
+    '<tr><td>Planetary push</td><td>~' + Math.round(highEp) + 'mm</td><td>' + ScopeEngine.magnification(fl, highEp) + 'x</td><td>75% of ceiling - for steady nights</td></tr>' +
+    '</table>' +
+    '<div class="note">A 2x Barlow turns three eyepieces into six powers - but it multiplies magnification, never aperture. The ' + cap + 'x ceiling does not move.</div>';
+}
+['ap','fl','ep','afov','barlow'].forEach(function(id){ $(id).addEventListener('input', render); });
+render();
+</script>
+</body>
+</html>
